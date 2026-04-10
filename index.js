@@ -109,6 +109,44 @@ function buildBodyParams() {
     return out;
 }
 
+function findBodyTextarea() {
+    // 方法1: 常见 ID
+    let ta = document.querySelector('#custom_include_body')
+        || document.querySelector('textarea[name="custom_include_body"]')
+        || document.querySelector('#custom_include_body_openai');
+    if (ta) return ta;
+    // 方法2: 找标签文字含"主体参数"的，取它后面最近的 textarea
+    for (const el of document.querySelectorAll('h4, h3, label, span, div, p')) {
+        if (el.textContent.includes('主体参数') && !el.textContent.includes('排除')) {
+            const next = el.nextElementSibling;
+            if (next?.tagName === 'TEXTAREA') return next;
+            const inner = el.parentElement?.querySelector('textarea');
+            if (inner) return inner;
+        }
+    }
+    // 方法3: 找当前值含 providerOptions 的
+    const all = [...document.querySelectorAll('textarea')];
+    ta = all.find(t => t.value && t.value.includes('providerOptions'));
+    if (ta) return ta;
+    // 方法4: id/name 含 include_body
+    ta = all.find(t => (t.id + t.name).toLowerCase().includes('include_body'));
+    return ta || null;
+}
+
+function syncToBody() {
+    const s = getSettings();
+    if (s.enabled === false) return;
+    const json = buildBodyParams();
+    if (Object.keys(json).length === 0) return;
+    const jsonStr = JSON.stringify(json, null, 2);
+    const ta = findBodyTextarea();
+    if (ta) {
+        ta.value = jsonStr;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+}
+
 function applyToCustomBody() {
     const json = buildBodyParams();
     if (Object.keys(json).length === 0) {
@@ -116,9 +154,7 @@ function applyToCustomBody() {
         return;
     }
     const jsonStr = JSON.stringify(json, null, 2);
-    const textarea = document.querySelector('#custom_include_body')
-        || document.querySelector('textarea[name="custom_include_body"]')
-        || document.querySelector('#custom_include_body_openai');
+    const textarea = findBodyTextarea();
     if (textarea) {
         textarea.value = jsonStr;
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -579,6 +615,7 @@ function renderPreview() {
     const pre = document.getElementById('vgh-preview');
     if (!pre) return;
     pre.textContent = JSON.stringify(buildBodyParams(), null, 2) || '{}';
+    syncToBody();  // 每次设置变化都同步到酒馆
 }
 
 // ---------- 过滤酒馆"可用模型"下拉框 ----------
@@ -743,12 +780,11 @@ function bindEvents() {
             filterModelDropdown();
         } else {
             // 关闭：清空参数 + 恢复模型列表
-            const ta = document.querySelector('#custom_include_body')
-                || document.querySelector('textarea[name="custom_include_body"]')
-                || document.querySelector('#custom_include_body_openai');
+            const ta = findBodyTextarea();
             if (ta) {
                 ta.value = '';
                 ta.dispatchEvent(new Event('input', { bubbles: true }));
+                ta.dispatchEvent(new Event('change', { bubbles: true }));
             }
             unfilterModelDropdown();
             toast('已关闭，所有功能已停用', 'info');
