@@ -44,6 +44,7 @@ const DEFAULT_PRESETS = {
 const EFFORT_OPTIONS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 
 const DEFAULT_SETTINGS = {
+    enabled: true,                // 总开关
     activeModel: 'Gemini',
     selectedProviders: ['google'],
     routeMode: 'only',            // 默认 only：要么官方要么不用
@@ -299,6 +300,7 @@ async function rotateNow() {
 
 async function onGenerationHook() {
     const s = getSettings();
+    if (s.enabled === false) return;
     if (!s.rotationEnabled || s.keys.length === 0) return;
     const k = pickNextAliveKey();
     if (!k) { console.warn('[VercelHelper] 轮询：没有活 key'); return; }
@@ -435,91 +437,107 @@ function buildHTML() {
         </div>
         <div class="inline-drawer-content">
 
-          <div class="vgh-section">
-            <div class="vgh-title">1. 模型预设 / 供应商勾选</div>
-            <div class="vgh-row">
-              <label>模型族</label>
-              <select id="vgh-model-select">${presetOptions}</select>
-            </div>
-            <details class="vgh-batch-details">
-              <summary>编辑预设 JSON</summary>
-              <div class="vgh-batch-body">
-                <textarea id="vgh-preset-text" rows="10" placeholder="模型族名: providers 列表 + defaultOrder 列表"></textarea>
-                <div class="vgh-row">
-                  <button class="menu_button" id="vgh-preset-save">保存</button>
-                  <button class="menu_button" id="vgh-preset-reset">恢复默认</button>
+          <div class="vgh-row vgh-master">
+            <label class="vgh-checkbox"><input type="checkbox" id="vgh-enabled" ${s.enabled !== false ? 'checked' : ''}/> 启用扩展</label>
+          </div>
+
+          <div id="vgh-body" style="${s.enabled === false ? 'display:none' : ''}">
+
+          <details class="vgh-drawer" open>
+            <summary class="vgh-title">1. 模型预设 / 供应商勾选</summary>
+            <div class="vgh-section-body">
+              <div class="vgh-row">
+                <label>模型商</label>
+                <select id="vgh-model-select">${presetOptions}</select>
+              </div>
+              <details class="vgh-batch-details">
+                <summary>编辑预设 JSON</summary>
+                <div class="vgh-batch-body">
+                  <textarea id="vgh-preset-text" rows="10" placeholder="模型商名: providers 列表 + defaultOrder 列表"></textarea>
+                  <div class="vgh-row">
+                    <button class="menu_button" id="vgh-preset-save">保存</button>
+                    <button class="menu_button" id="vgh-preset-reset">恢复默认</button>
+                  </div>
                 </div>
+              </details>
+              <div class="vgh-row">
+                <label>路由模式</label>
+                <label class="vgh-radio"><input type="radio" name="vgh-route" value="order" ${s.routeMode === 'order' ? 'checked' : ''}/> order（按序回退）</label>
+                <label class="vgh-radio"><input type="radio" name="vgh-route" value="only" ${s.routeMode === 'only' ? 'checked' : ''}/> only（只用这些）</label>
               </div>
-            </details>
-            <div class="vgh-row">
-              <label>路由模式</label>
-              <label class="vgh-radio"><input type="radio" name="vgh-route" value="order" ${s.routeMode === 'order' ? 'checked' : ''}/> order（按序回退）</label>
-              <label class="vgh-radio"><input type="radio" name="vgh-route" value="only" ${s.routeMode === 'only' ? 'checked' : ''}/> only（只用这些）</label>
+              <div class="vgh-row vgh-providers" id="vgh-providers"></div>
             </div>
-            <div class="vgh-row vgh-providers" id="vgh-providers"></div>
-          </div>
+          </details>
 
-          <div class="vgh-section">
-            <div class="vgh-title">2. 思考模式 (reasoning)</div>
-            <div class="vgh-row">
-              <label class="vgh-checkbox"><input type="checkbox" id="vgh-reasoning" ${s.enableReasoning ? 'checked' : ''}/> 开启思考</label>
-            </div>
-            <div class="vgh-row">${effortRadios}</div>
-            <div class="vgh-row">
-              <label class="vgh-checkbox"><input type="checkbox" id="vgh-use-maxtok" ${s.useMaxTokensInsteadOfEffort ? 'checked' : ''}/> 改用 max_tokens（与 effort 互斥）</label>
-              <input type="number" id="vgh-maxtok" min="0" step="64" value="${s.reasoningMaxTokens || 0}" style="width:110px"/>
-            </div>
-          </div>
-
-          <div class="vgh-section">
-            <div class="vgh-title">3. 缓存 (caching)</div>
-            <div class="vgh-row">
-              <label class="vgh-checkbox"><input type="checkbox" id="vgh-cache" ${s.enableCaching ? 'checked' : ''}/> 开启缓存（Anthropic 等需要主动开）</label>
-              <input type="text" id="vgh-cache-mode" value="${s.cachingMode || 'auto'}" style="width:90px"/>
-            </div>
-          </div>
-
-          <div class="vgh-section">
-            <div class="vgh-title">4. 生成 JSON</div>
-            <pre id="vgh-preview" class="vgh-preview"></pre>
-            <div class="vgh-row">
-              <button class="menu_button" id="vgh-apply">写入"包含主体参数"</button>
-              <button class="menu_button" id="vgh-copy">复制 JSON</button>
-            </div>
-          </div>
-
-          <div class="vgh-section">
-            <div class="vgh-title">5. Key 池 / 余额 / 轮询</div>
-
-            <div class="vgh-row">
-              <input type="text" id="vgh-newkey" placeholder="vercel ai gateway key" style="flex:1"/>
-              <button class="menu_button" id="vgh-add">添加</button>
-            </div>
-
-            <details class="vgh-batch-details">
-              <summary>批量添加</summary>
-              <div class="vgh-batch-body">
-                <textarea id="vgh-batch-text" rows="6" placeholder="每行粘贴一个 key：&#10;vck-xxxx&#10;vck-yyyy&#10;vck-zzzz"></textarea>
-                <button class="menu_button" id="vgh-batch-go">导入</button>
+          <details class="vgh-drawer">
+            <summary class="vgh-title">2. 思考模式 (reasoning)</summary>
+            <div class="vgh-section-body">
+              <div class="vgh-row">
+                <label class="vgh-checkbox"><input type="checkbox" id="vgh-reasoning" ${s.enableReasoning ? 'checked' : ''}/> 开启思考</label>
               </div>
-            </details>
+              <div class="vgh-row">${effortRadios}</div>
+              <div class="vgh-row">
+                <label class="vgh-checkbox"><input type="checkbox" id="vgh-use-maxtok" ${s.useMaxTokensInsteadOfEffort ? 'checked' : ''}/> 改用 max_tokens（与 effort 互斥）</label>
+                <input type="number" id="vgh-maxtok" min="0" step="64" value="${s.reasoningMaxTokens || 0}" style="width:110px"/>
+              </div>
+            </div>
+          </details>
 
-            <div class="vgh-row">
-              <button class="menu_button" id="vgh-checkall">检查全部余额</button>
-              <button class="menu_button" id="vgh-rotate">手动轮询一次</button>
+          <details class="vgh-drawer">
+            <summary class="vgh-title">3. 缓存 (caching)</summary>
+            <div class="vgh-section-body">
+              <div class="vgh-row">
+                <label class="vgh-checkbox"><input type="checkbox" id="vgh-cache" ${s.enableCaching ? 'checked' : ''}/> 开启缓存（Anthropic 等需要主动开）</label>
+                <input type="text" id="vgh-cache-mode" value="${s.cachingMode || 'auto'}" style="width:90px"/>
+              </div>
             </div>
-            <div class="vgh-row">
-              <label class="vgh-checkbox"><input type="checkbox" id="vgh-rot-enable" ${s.rotationEnabled ? 'checked' : ''}/> 自动轮询（每次生成前切下一个活 key）</label>
-            </div>
-            <div class="vgh-row">
-              <label>余额阈值（&lt; 此值视为低）</label>
-              <input type="number" id="vgh-minbal" min="0" step="0.01" value="${s.minBalance}" style="width:90px"/>
-            </div>
+          </details>
 
-            <div id="vgh-keytable-wrap"></div>
-            <div id="vgh-trash-wrap"></div>
+          <details class="vgh-drawer">
+            <summary class="vgh-title">4. 生成 JSON</summary>
+            <div class="vgh-section-body">
+              <pre id="vgh-preview" class="vgh-preview"></pre>
+              <div class="vgh-row">
+                <button class="menu_button" id="vgh-apply">写入"包含主体参数"</button>
+                <button class="menu_button" id="vgh-copy">复制 JSON</button>
+              </div>
+            </div>
+          </details>
+
+          <details class="vgh-drawer" open>
+            <summary class="vgh-title">5. Key 池 / 余额 / 轮询</summary>
+            <div class="vgh-section-body">
+              <div class="vgh-row">
+                <input type="text" id="vgh-newkey" placeholder="vercel ai gateway key" style="flex:1"/>
+                <button class="menu_button" id="vgh-add">添加</button>
+              </div>
+
+              <details class="vgh-batch-details">
+                <summary>批量添加</summary>
+                <div class="vgh-batch-body">
+                  <textarea id="vgh-batch-text" rows="6" placeholder="每行粘贴一个 key：&#10;vck-xxxx&#10;vck-yyyy&#10;vck-zzzz"></textarea>
+                  <button class="menu_button" id="vgh-batch-go">导入</button>
+                </div>
+              </details>
+
+              <div class="vgh-row">
+                <button class="menu_button" id="vgh-checkall">检查全部余额</button>
+                <button class="menu_button" id="vgh-rotate">手动轮询一次</button>
+              </div>
+              <div class="vgh-row">
+                <label class="vgh-checkbox"><input type="checkbox" id="vgh-rot-enable" ${s.rotationEnabled ? 'checked' : ''}/> 自动轮询（每次生成前切下一个活 key）</label>
+              </div>
+              <div class="vgh-row">
+                <label>余额阈值（&lt; 此值视为低）</label>
+                <input type="number" id="vgh-minbal" min="0" step="0.01" value="${s.minBalance}" style="width:90px"/>
+              </div>
+
+              <div id="vgh-keytable-wrap"></div>
+              <div id="vgh-trash-wrap"></div>
+            </div>
+          </details>
+
           </div>
-
         </div>
       </div>
     </div>`;
@@ -579,6 +597,7 @@ function getModelDropdown() {
 
 function filterModelDropdown() {
     const s = getSettings();
+    if (s.enabled === false) return;   // 总开关关了不过滤
     const sel = getModelDropdown();
     if (!sel) return;
     const providers = s.selectedProviders.filter(Boolean);
@@ -599,7 +618,12 @@ function filterModelDropdown() {
             if (matches) visibleCount++;
         }
     }
-    console.log(`[VercelHelper] 模型过滤: ${providers.join(',')} → 显示 ${visibleCount} 个模型`);
+}
+
+function unfilterModelDropdown() {
+    const sel = getModelDropdown();
+    if (!sel) return;
+    for (const opt of sel.options) { opt.style.display = ''; }
 }
 
 let _modelObserver = null;
@@ -697,6 +721,29 @@ function renderKeyTable() {
 
 function bindEvents() {
     const s = getSettings();
+
+    // 总开关
+    document.getElementById('vgh-enabled')?.addEventListener('change', e => {
+        s.enabled = e.target.checked;
+        save();
+        const body = document.getElementById('vgh-body');
+        if (body) body.style.display = s.enabled ? '' : 'none';
+        if (s.enabled) {
+            applyToCustomBody();
+            filterModelDropdown();
+        } else {
+            // 关闭：清空参数 + 恢复模型列表
+            const ta = document.querySelector('#custom_include_body')
+                || document.querySelector('textarea[name="custom_include_body"]')
+                || document.querySelector('#custom_include_body_openai');
+            if (ta) {
+                ta.value = '';
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            unfilterModelDropdown();
+            toast('已关闭，所有功能已停用', 'info');
+        }
+    });
 
     document.getElementById('vgh-model-select')?.addEventListener('change', e => {
         s.activeModel = e.target.value;
