@@ -131,17 +131,25 @@ function buildYaml() {
 }
 
 // ---------- 写入包括主体参数 ----------
-// textarea #custom_include_body 在弹窗里，只有弹窗打开时才在 DOM 中
-// 策略：MutationObserver 监听，弹窗一打开就自动填入
+// 优先直接修改酒馆内存中的 oai_settings（后台静默，不需要打开任何弹窗）
+// 备用：MutationObserver 在弹窗打开时自动填入 textarea
 
-let _pendingBody = '';  // 待写入的内容
+let _pendingBody = '';
+
+function writeToSettings(jsonStr) {
+    if (_oai_settings) {
+        _oai_settings.custom_include_body = jsonStr;
+        saveSettingsDebounced();
+        return true;
+    }
+    return false;
+}
 
 function writeDirect() {
     const ta = document.querySelector('#custom_include_body');
     if (!ta) return false;
     ta.value = _pendingBody;
     ta.dispatchEvent(new Event('input', { bubbles: true }));
-    ta.dispatchEvent(new Event('change', { bubbles: true }));
     return true;
 }
 
@@ -152,7 +160,6 @@ function updatePendingBody() {
     _pendingBody = Object.keys(json).length > 0 ? JSON.stringify(json, null, 2) : '';
 }
 
-// 监听 DOM 变化，一旦 #custom_include_body 出现就写入
 function installBodyObserver() {
     const observer = new MutationObserver(() => {
         if (!_pendingBody) return;
@@ -160,8 +167,6 @@ function installBodyObserver() {
         if (ta && ta.value !== _pendingBody) {
             ta.value = _pendingBody;
             ta.dispatchEvent(new Event('input', { bubbles: true }));
-            ta.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('[VercelHelper] 弹窗打开，已自动填入参数');
         }
     });
     observer.observe(document.body, { childList: true, subtree: true });
@@ -169,27 +174,14 @@ function installBodyObserver() {
 
 function syncToBody() {
     updatePendingBody();
-    writeDirect(); // 试一下，如果弹窗恰好开着就直接写
+    writeToSettings(_pendingBody);
+    writeDirect();
 }
 
 function clearBody() {
     _pendingBody = '';
+    writeToSettings('');
     writeDirect();
-}
-
-function clickAdditionalParamsButton() {
-    // 尝试找到并点击"附加参数"按钮来打开弹窗
-    const btns = [...document.querySelectorAll('div, a, button, span')];
-    const btn = btns.find(el =>
-        el.textContent.trim() === '附加参数' ||
-        el.textContent.trim() === 'Additional Parameters' ||
-        el.getAttribute('data-i18n') === 'Additional Parameters'
-    );
-    if (btn) {
-        btn.click();
-        return true;
-    }
-    return false;
 }
 
 function applyToCustomBody() {
@@ -198,25 +190,11 @@ function applyToCustomBody() {
         toast('当前没有任何要写入的参数', 'warning');
         return;
     }
-    // 先试直接写（弹窗可能恰好开着）
-    if (writeDirect()) {
-        toast('已写入', 'success');
-        return;
-    }
-    // 弹窗没开 → 自动打开它，MutationObserver 会处理写入
-    if (clickAdditionalParamsButton()) {
-        toast('正在打开附加参数弹窗并写入…', 'info');
-        // 给弹窗一点时间出现，然后写入
-        setTimeout(() => {
-            if (writeDirect()) {
-                toast('已写入', 'success');
-            } else {
-                toast('弹窗未能打开，请手动点击 API面板→附加参数', 'warning');
-            }
-        }, 500);
+    if (writeToSettings(_pendingBody)) {
+        toast('已写入（后台生效）', 'success');
     } else {
         navigator.clipboard.writeText(_pendingBody).then(
-            () => toast('按钮未找到，已复制到剪贴板。请手动粘贴到 附加参数→包括主体参数', 'warning'),
+            () => toast('设置对象未获取到，已复制到剪贴板', 'warning'),
             () => toast('写入失败', 'error'),
         );
     }
@@ -440,6 +418,9 @@ async function rotateNow() {
 async function onGenerationHook() {
     const s = getSettings();
     if (s.enabled === false) return;
+    // 每次生成前确保参数是最新的
+    syncToBody();
+    // 轮询切 key
     if (!s.rotationEnabled || s.keys.length === 0) return;
     const k = pickNextAliveKey();
     if (!k) { console.warn('[VercelHelper] 轮询：没有活 key'); return; }
@@ -981,8 +962,21 @@ function bindEvents() {
 }
 
 // ---------- 入口 ----------
+let _oai_settings = null;  // 酒馆的设置对象，动态获取
+
 jQuery(async () => {
     try {
+        // 尝试获取酒馆 oai_settings（用于直接写入 custom_include_body）
+        try {
+            const mod = await import('../../../openai.js');
+            if (mod?.oai_settings) {
+                _oai_settings = mod.oai_settings;
+                console.log('[VercelHelper] ✅ 成功获取 oai_settings');
+            }
+        } catch (e) {
+            console.log('[VercelHelper] openai.js 导入失败（将用备用方案）:', e.message);
+        }
+
         const host = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
         if (!host) {
             console.error('[VercelHelper] 找不到扩展设置容器 extensions_settings2');
@@ -1015,17 +1009,48 @@ jQuery(async () => {
         const presetTa = document.getElementById('vgh-preset-text');
         if (presetTa) presetTa.value = JSON.stringify(getSettings().presets, null, 2);
 
+        // 挂钩生成事件（多种方式，确保至少一个生效）
+        let hooked = false;
         try {
-            const evt = event_types?.GENERATE_BEFORE_COMBINE_PROMPTS
-                || event_types?.GENERATION_STARTED
-                || 'GENERATION_STARTED';
-            eventSource.on(evt, onGenerationHook);
-            console.log('[VercelHelper] 已挂钩事件:', evt);
-        } catch (e) {
-            console.error('[VercelHelper] 挂钩事件失败', e);
+            // 尝试所有已知的 ST 事件名
+            const candidates = [
+                event_types?.GENERATE_BEFORE_COMBINE_PROMPTS,
+                event_types?.GENERATION_STARTED,
+                event_types?.CHAT_COMPLETION_SETTINGS_READY,
+                'generate_before_combine_prompts',
+                'generation_started',
+                'GENERATE_BEFORE_COMBINE_PROMPTS',
+                'GENERATION_STARTED',
+            ].filter(Boolean);
+
+            for (const evt of candidates) {
+                try {
+                    eventSource.on(evt, onGenerationHook);
+                    console.log('[VercelHelper] 已挂钩事件:', evt);
+                    hooked = true;
+                } catch (_) {}
+            }
+        } catch (_) {}
+
+        // 备用：jQuery 全局 AJAX 钩子
+        if (!hooked || true) {  // 总是加上，双保险
+            try {
+                let _lastRotateTime = 0;
+                jQuery(document).ajaxSend(function(_e, _xhr, settings) {
+                    if (settings?.type === 'POST' && settings?.url &&
+                        (settings.url.includes('generate') || settings.url.includes('completions'))) {
+                        const now = Date.now();
+                        if (now - _lastRotateTime > 3000) {  // 防抖 3 秒
+                            _lastRotateTime = now;
+                            onGenerationHook();
+                        }
+                    }
+                });
+                console.log('[VercelHelper] jQuery ajaxSend 钩子已安装');
+            } catch (_) {}
         }
 
-        console.log('[VercelHelper] 加载完成');
+        console.log('[VercelHelper] 加载完成, oai_settings:', !!_oai_settings);
     } catch (err) {
         console.error('[VercelHelper] 初始化失败:', err);
     }
