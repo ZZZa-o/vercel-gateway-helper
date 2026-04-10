@@ -130,50 +130,48 @@ function buildYaml() {
     return toYaml(buildBodyParams()).trim();
 }
 
-function findBodyTextarea() {
-    // 按 placeholder 关键词找（从截图里确认的文字）
-    const all = [...document.querySelectorAll('textarea')];
-    let ta = all.find(t => t.placeholder && t.placeholder.includes('包含的参数'));
-    if (ta) return ta;
-    // 兜底: 常见 ID
-    ta = document.querySelector('#custom_include_body')
-        || document.querySelector('textarea[name="custom_include_body"]');
-    if (ta) return ta;
-    // 兜底: 当前值含 providerOptions
-    ta = all.find(t => t.value && t.value.includes('providerOptions'));
-    return ta || null;
+// ---------- 请求拦截：直接注入参数到发出去的请求 ----------
+let _interceptInstalled = false;
+
+function installFetchInterceptor() {
+    if (_interceptInstalled) return;
+    _interceptInstalled = true;
+
+    const _origFetch = window.fetch;
+    window.fetch = async function(url, options) {
+        try {
+            const s = getSettings();
+            if (s.enabled !== false && options?.method === 'POST' && typeof url === 'string') {
+                // 匹配酒馆发到后端的聊天补全请求
+                if (url.includes('/generate') || url.includes('/chat/completions')) {
+                    const body = JSON.parse(options.body);
+                    // 只在有 messages 字段的请求里注入（确保是聊天请求）
+                    if (body.messages) {
+                        const params = buildBodyParams();
+                        if (Object.keys(params).length > 0) {
+                            Object.assign(body, params);
+                            options = { ...options, body: JSON.stringify(body) };
+                            console.log('[VercelHelper] 已注入参数:', Object.keys(params).join(', '));
+                        }
+                    }
+                }
+            }
+        } catch (_) {}
+        return _origFetch.call(this, url, options);
+    };
+    console.log('[VercelHelper] fetch 拦截器已安装');
 }
 
 function syncToBody() {
-    const s = getSettings();
-    if (s.enabled === false) return;
-    const yaml = buildYaml();
-    if (!yaml) return;
-    const ta = findBodyTextarea();
-    if (ta) {
-        ta.value = yaml;
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
-        ta.dispatchEvent(new Event('change', { bubbles: true }));
-    }
+    // 不再需要写 textarea，参数通过 fetch 拦截器自动注入
 }
 
 function applyToCustomBody() {
     const yaml = buildYaml();
-    if (!yaml) {
-        toast('当前没有任何要写入的参数', 'warning');
-        return;
-    }
-    const textarea = findBodyTextarea();
-    if (textarea) {
-        textarea.value = yaml;
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        textarea.dispatchEvent(new Event('change', { bubbles: true }));
-        toast('已写入', 'success');
-        return;
-    }
+    if (!yaml) { toast('当前没有任何要写入的参数', 'warning'); return; }
     navigator.clipboard.writeText(yaml).then(
-        () => toast('DOM 未找到，已复制到剪贴板', 'warning'),
-        () => toast('写入失败', 'error'),
+        () => toast('已复制到剪贴板（参数会自动注入请求，无需手动粘贴）', 'success'),
+        () => toast('复制失败', 'error'),
     );
 }
 
@@ -539,11 +537,10 @@ function buildHTML() {
           </details>
 
           <details class="vgh-drawer">
-            <summary class="vgh-title">4. 生成参数 (YAML)</summary>
+            <summary class="vgh-title">4. 参数预览（自动注入，无需手动）</summary>
             <div class="vgh-section-body">
               <pre id="vgh-preview" class="vgh-preview"></pre>
               <div class="vgh-row">
-                <button class="menu_button" id="vgh-apply">写入"包含主体参数"</button>
                 <button class="menu_button" id="vgh-copy">复制 YAML</button>
               </div>
             </div>
@@ -785,16 +782,9 @@ function bindEvents() {
         const body = document.getElementById('vgh-body');
         if (body) body.style.display = s.enabled ? '' : 'none';
         if (s.enabled) {
-            applyToCustomBody();
             filterModelDropdown();
+            toast('已开启，参数将自动注入请求', 'success');
         } else {
-            // 关闭：清空参数 + 恢复模型列表
-            const ta = findBodyTextarea();
-            if (ta) {
-                ta.value = '';
-                ta.dispatchEvent(new Event('input', { bubbles: true }));
-                ta.dispatchEvent(new Event('change', { bubbles: true }));
-            }
             unfilterModelDropdown();
             toast('已关闭，所有功能已停用', 'info');
         }
@@ -907,9 +897,12 @@ jQuery(async () => {
 
         renderProviderCheckboxes();
         renderPreview();
-        renumberKeys();       // 修复已有的乱序编号
+        renumberKeys();
         renderKeyTable();
         bindEvents();
+
+        // 核心：安装请求拦截器，自动注入参数
+        installFetchInterceptor();
 
         // 启动模型下拉框过滤 + 监听
         filterModelDropdown();
