@@ -131,26 +131,16 @@ function buildYaml() {
 }
 
 function findBodyTextarea() {
-    // 方法1: 常见 ID
-    let ta = document.querySelector('#custom_include_body')
-        || document.querySelector('textarea[name="custom_include_body"]')
-        || document.querySelector('#custom_include_body_openai');
-    if (ta) return ta;
-    // 方法2: 找标签文字含"主体参数"的，取它后面最近的 textarea
-    for (const el of document.querySelectorAll('h4, h3, label, span, div, p')) {
-        if (el.textContent.includes('主体参数') && !el.textContent.includes('排除')) {
-            const next = el.nextElementSibling;
-            if (next?.tagName === 'TEXTAREA') return next;
-            const inner = el.parentElement?.querySelector('textarea');
-            if (inner) return inner;
-        }
-    }
-    // 方法3: 找当前值含 providerOptions 的
+    // 按 placeholder 关键词找（从截图里确认的文字）
     const all = [...document.querySelectorAll('textarea')];
-    ta = all.find(t => t.value && t.value.includes('providerOptions'));
+    let ta = all.find(t => t.placeholder && t.placeholder.includes('包含的参数'));
     if (ta) return ta;
-    // 方法4: id/name 含 include_body
-    ta = all.find(t => (t.id + t.name).toLowerCase().includes('include_body'));
+    // 兜底: 常见 ID
+    ta = document.querySelector('#custom_include_body')
+        || document.querySelector('textarea[name="custom_include_body"]');
+    if (ta) return ta;
+    // 兜底: 当前值含 providerOptions
+    ta = all.find(t => t.value && t.value.includes('providerOptions'));
     return ta || null;
 }
 
