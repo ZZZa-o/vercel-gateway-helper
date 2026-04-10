@@ -109,6 +109,27 @@ function buildBodyParams() {
     return out;
 }
 
+// 酒馆"包括主体参数"要的是 YAML，不是 JSON
+function toYaml(obj, indent = 0) {
+    const pad = '  '.repeat(indent);
+    let out = '';
+    for (const [k, v] of Object.entries(obj)) {
+        if (Array.isArray(v)) {
+            out += `${pad}${k}:\n`;
+            for (const item of v) out += `${pad}  - ${item}\n`;
+        } else if (v !== null && typeof v === 'object') {
+            out += `${pad}${k}:\n` + toYaml(v, indent + 1);
+        } else {
+            out += `${pad}${k}: ${v}\n`;
+        }
+    }
+    return out;
+}
+
+function buildYaml() {
+    return toYaml(buildBodyParams()).trim();
+}
+
 function findBodyTextarea() {
     // 方法1: 常见 ID
     let ta = document.querySelector('#custom_include_body')
@@ -136,41 +157,39 @@ function findBodyTextarea() {
 function syncToBody() {
     const s = getSettings();
     if (s.enabled === false) return;
-    const json = buildBodyParams();
-    if (Object.keys(json).length === 0) return;
-    const jsonStr = JSON.stringify(json, null, 2);
+    const yaml = buildYaml();
+    if (!yaml) return;
     const ta = findBodyTextarea();
     if (ta) {
-        ta.value = jsonStr;
+        ta.value = yaml;
         ta.dispatchEvent(new Event('input', { bubbles: true }));
         ta.dispatchEvent(new Event('change', { bubbles: true }));
     }
 }
 
 function applyToCustomBody() {
-    const json = buildBodyParams();
-    if (Object.keys(json).length === 0) {
+    const yaml = buildYaml();
+    if (!yaml) {
         toast('当前没有任何要写入的参数', 'warning');
         return;
     }
-    const jsonStr = JSON.stringify(json, null, 2);
     const textarea = findBodyTextarea();
     if (textarea) {
-        textarea.value = jsonStr;
+        textarea.value = yaml;
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
         textarea.dispatchEvent(new Event('change', { bubbles: true }));
         toast('已写入', 'success');
         return;
     }
-    navigator.clipboard.writeText(jsonStr).then(
+    navigator.clipboard.writeText(yaml).then(
         () => toast('DOM 未找到，已复制到剪贴板', 'warning'),
         () => toast('写入失败', 'error'),
     );
 }
 
 function copyJsonToClipboard() {
-    const text = JSON.stringify(buildBodyParams(), null, 2);
-    navigator.clipboard.writeText(text).then(
+    const yaml = buildYaml();
+    navigator.clipboard.writeText(yaml || '').then(
         () => toast('已复制到剪贴板', 'success'),
         () => toast('复制失败', 'error'),
     );
@@ -530,12 +549,12 @@ function buildHTML() {
           </details>
 
           <details class="vgh-drawer">
-            <summary class="vgh-title">4. 生成 JSON</summary>
+            <summary class="vgh-title">4. 生成参数 (YAML)</summary>
             <div class="vgh-section-body">
               <pre id="vgh-preview" class="vgh-preview"></pre>
               <div class="vgh-row">
                 <button class="menu_button" id="vgh-apply">写入"包含主体参数"</button>
-                <button class="menu_button" id="vgh-copy">复制 JSON</button>
+                <button class="menu_button" id="vgh-copy">复制 YAML</button>
               </div>
             </div>
           </details>
@@ -614,8 +633,8 @@ function renderProviderCheckboxes() {
 function renderPreview() {
     const pre = document.getElementById('vgh-preview');
     if (!pre) return;
-    pre.textContent = JSON.stringify(buildBodyParams(), null, 2) || '{}';
-    syncToBody();  // 每次设置变化都同步到酒馆
+    pre.textContent = buildYaml() || '(无)';
+    syncToBody();
 }
 
 // ---------- 过滤酒馆"可用模型"下拉框 ----------
