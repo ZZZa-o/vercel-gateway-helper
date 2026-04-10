@@ -106,6 +106,162 @@
   min-height: 0 !important;
 }
 
+/* 防止按钮文字被挤成竖排 */
+.vgh-root button,
+.vgh-root .menu_button {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 预设编辑器 */
+.vgh-preset-editor {
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px dashed var(--vgh-border);
+  border-radius: 6px;
+}
+
+.vgh-preset-editor textarea {
+  width: 100%;
+  min-height: 180px;
+}
+
+.vgh-ok { color: var(--vgh-ok); }
+.vgh-warn { color: var(--vgh-warn); }
+.vgh-bad { color: var(--vgh-bad); }
+.vgh-muted { color: var(--vgh-muted); }
+
+.vgh-root input[type="text"],
+.vgh-root input[type="number"],
+.vgh-root select,
+.vgh-root textarea {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--vgh-border);
+  color: var(--vgh-fg);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.85em;
+}
+
+.vgh-root textarea {
+  width: 100%;
+  font-family: ui-monospace, "JetBrains Mono", Consolas, monospace;
+  resize: vertical;
+}
+
+/* 批量添加折叠区 */
+.vgh-batch-details {
+  margin: 6px 0;
+  border: 1px dashed var(--vgh-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.vgh-batch-details > summary {
+  cursor: pointer;
+  font-size: 0.9em;
+  color: var(--vgh-accent);
+  user-select: none;
+}
+
+.vgh-batch-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 垃圾盒 */
+.vgh-trash-details {
+  margin-top: 10px;
+  border: 1px solid var(--vgh-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  opacity: 0.85;
+}
+
+.vgh-trash-details > summary {
+  cursor: pointer;
+  font-size: 0.9em;
+  color: var(--vgh-bad);
+  user-select: none;
+}
+
+.vgh-trash-details[open] {
+  opacity: 1;
+}
+.vgh-checkbox,
+.vgh-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.vgh-checkbox input,
+.vgh-radio input { margin: 0; }
+
+.vgh-providers {
+  padding: 6px;
+  border: 1px dashed var(--vgh-border);
+  border-radius: 6px;
+  min-height: 32px;
+}
+
+.vgh-provider {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.vgh-preview {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--vgh-border);
+  border-radius: 6px;
+  padding: 8px;
+  font-family: ui-monospace, "JetBrains Mono", Consolas, monospace;
+  font-size: 0.82em;
+  color: var(--vgh-fg);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow: auto;
+  margin: 6px 0;
+}
+
+.vgh-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82em;
+  margin-top: 6px;
+}
+
+.vgh-table th,
+.vgh-table td {
+  border-bottom: 1px solid var(--vgh-border);
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.vgh-table th {
+  color: var(--vgh-accent);
+  font-weight: normal;
+}
+
+.vgh-errcell {
+  max-width: 200px;
+  word-break: break-word;
+}
+
+.vgh-mini {
+  padding: 2px 6px !important;
+  font-size: 0.8em !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
 .vgh-ok { color: var(--vgh-ok); }
 .vgh-warn { color: var(--vgh-warn); }
 .vgh-bad { color: var(--vgh-bad); }
