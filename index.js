@@ -18,12 +18,14 @@
 // 模块也能正常加载（不会在解析阶段崩掉拖累其他扩展）
 import * as Extensions from '../../../extensions.js';
 import * as Script from '../../../../script.js';
+import * as OpenAI from '../../../openai.js';
 
 const extension_settings  = Extensions.extension_settings  || {};
 const saveSettingsDebounced = Script.saveSettingsDebounced || (() => {});
 const eventSource         = Script.eventSource             || { on: () => {} };
 const event_types         = Script.event_types             || {};
 const getRequestHeaders   = Script.getRequestHeaders       || (() => ({ 'Content-Type': 'application/json' }));
+const oai_settings        = OpenAI.oai_settings            || null;
 
 console.log('[VercelHelper] 模块加载，导入状态:', {
     extension_settings: !!Extensions.extension_settings,
@@ -31,6 +33,7 @@ console.log('[VercelHelper] 模块加载，导入状态:', {
     eventSource: !!Script.eventSource,
     event_types: !!Script.event_types,
     getRequestHeaders: !!Script.getRequestHeaders,
+    oai_settings: !!OpenAI.oai_settings,
 });
 
 const MODULE = 'vercel_gateway_helper';
@@ -119,15 +122,39 @@ function applyToCustomBody() {
         toast('当前没有任何要写入的参数', 'warning');
         return;
     }
-    const textarea = document.querySelector('#custom_include_body');
-    if (!textarea) {
-        toast('找不到 #custom_include_body，请先在 API 面板选 "Chat Completion → Custom"', 'error');
+    const jsonStr = JSON.stringify(json, null, 2);
+
+    // 方法1: 直接注入酒馆 oai_settings 内存对象（最可靠）
+    if (oai_settings) {
+        oai_settings.custom_include_body = jsonStr;
+        saveSettingsDebounced();
+        // 顺便同步 DOM（如果元素存在的话）
+        const ta = document.querySelector('#custom_include_body');
+        if (ta) {
+            ta.value = jsonStr;
+            ta.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        toast('已写入', 'success');
         return;
     }
-    textarea.value = JSON.stringify(json, null, 2);
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    textarea.dispatchEvent(new Event('change', { bubbles: true }));
-    toast('已写入 包含主体参数', 'success');
+
+    // 方法2: 多选择器尝试找 DOM 元素
+    const textarea = document.querySelector('#custom_include_body')
+        || document.querySelector('textarea[name="custom_include_body"]')
+        || document.querySelector('#custom_include_body_openai');
+    if (textarea) {
+        textarea.value = jsonStr;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        textarea.dispatchEvent(new Event('change', { bubbles: true }));
+        toast('已写入', 'success');
+        return;
+    }
+
+    // 方法3: 兜底 — 复制到剪贴板
+    navigator.clipboard.writeText(jsonStr).then(
+        () => toast('找不到写入目标，已复制到剪贴板。请手动粘贴到 附加参数→包含主体参数', 'warning'),
+        () => toast('写入失败', 'error'),
+    );
 }
 
 function copyJsonToClipboard() {
@@ -514,6 +541,7 @@ function renderProviderCheckboxes() {
             getSettings().selectedProviders = preset.providers.filter(p => set.has(p));
             save();
             renderPreview();
+            filterModelDropdown();
         });
     });
 }
@@ -522,6 +550,59 @@ function renderPreview() {
     const pre = document.getElementById('vgh-preview');
     if (!pre) return;
     pre.textContent = JSON.stringify(buildBodyParams(), null, 2) || '{}';
+}
+
+// ---------- 过滤酒馆"可用模型"下拉框 ----------
+function getModelDropdown() {
+    // 酒馆不同版本/分叉的选择器可能不同，逐个尝试
+    return document.querySelector('#model_custom_select')
+        || document.querySelector('#custom_model_id_select')
+        || document.querySelector('select[data-for="custom_model"]')
+        // 回退：找所有 select，看哪个选项包含 "provider/model" 格式
+        || [...document.querySelectorAll('select')].find(sel =>
+            sel.options.length > 5 &&
+            [...sel.options].some(opt => /^\w+\/\w/.test(opt.value))
+        )
+        || null;
+}
+
+function filterModelDropdown() {
+    const s = getSettings();
+    const sel = getModelDropdown();
+    if (!sel) return;
+    const providers = s.selectedProviders.filter(Boolean);
+    let visibleCount = 0;
+    for (const opt of sel.options) {
+        if (!opt.value || opt.value === '') {
+            opt.style.display = '';
+            continue;
+        }
+        if (providers.length === 0) {
+            opt.style.display = '';
+            visibleCount++;
+        } else {
+            const matches = providers.some(p =>
+                opt.value.startsWith(p + '/') || opt.textContent.startsWith(p + '/')
+            );
+            opt.style.display = matches ? '' : 'none';
+            if (matches) visibleCount++;
+        }
+    }
+    console.log(`[VercelHelper] 模型过滤: ${providers.join(',')} → 显示 ${visibleCount} 个模型`);
+}
+
+let _modelObserver = null;
+function watchModelDropdown() {
+    if (_modelObserver) return;
+    const sel = getModelDropdown();
+    if (!sel) {
+        // 下拉框还没加载，稍后重试
+        setTimeout(watchModelDropdown, 3000);
+        return;
+    }
+    _modelObserver = new MutationObserver(() => filterModelDropdown());
+    _modelObserver.observe(sel, { childList: true });
+    filterModelDropdown();
 }
 
 function rowFor(k, isTrash) {
@@ -611,6 +692,7 @@ function bindEvents() {
         save();
         renderProviderCheckboxes();
         renderPreview();
+        filterModelDropdown();
     });
 
     document.querySelectorAll('input[name="vgh-route"]').forEach(r => {
@@ -712,6 +794,10 @@ jQuery(async () => {
         renderPreview();
         renderKeyTable();
         bindEvents();
+
+        // 启动模型下拉框过滤 + 监听
+        filterModelDropdown();
+        watchModelDropdown();
 
         // 预填预设编辑器
         const presetTa = document.getElementById('vgh-preset-text');
