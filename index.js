@@ -131,70 +131,144 @@ function buildYaml() {
 }
 
 // ---------- 写入包括主体参数 ----------
-function writeToBodyTextarea(value) {
+// textarea #custom_include_body 在弹窗里，只有弹窗打开时才在 DOM 中
+// 策略：MutationObserver 监听，弹窗一打开就自动填入
+
+let _pendingBody = '';  // 待写入的内容
+
+function writeDirect() {
     const ta = document.querySelector('#custom_include_body');
     if (!ta) return false;
-    ta.value = value;
+    ta.value = _pendingBody;
     ta.dispatchEvent(new Event('input', { bubbles: true }));
     ta.dispatchEvent(new Event('change', { bubbles: true }));
     return true;
 }
 
-function syncToBody() {
+function updatePendingBody() {
     const s = getSettings();
-    if (s.enabled === false) return;
+    if (s.enabled === false) { _pendingBody = ''; return; }
     const json = buildBodyParams();
-    if (Object.keys(json).length === 0) return;
-    writeToBodyTextarea(JSON.stringify(json, null, 2));
+    _pendingBody = Object.keys(json).length > 0 ? JSON.stringify(json, null, 2) : '';
+}
+
+// 监听 DOM 变化，一旦 #custom_include_body 出现就写入
+function installBodyObserver() {
+    const observer = new MutationObserver(() => {
+        if (!_pendingBody) return;
+        const ta = document.querySelector('#custom_include_body');
+        if (ta && ta.value !== _pendingBody) {
+            ta.value = _pendingBody;
+            ta.dispatchEvent(new Event('input', { bubbles: true }));
+            ta.dispatchEvent(new Event('change', { bubbles: true }));
+            console.log('[VercelHelper] 弹窗打开，已自动填入参数');
+        }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+}
+
+function syncToBody() {
+    updatePendingBody();
+    writeDirect(); // 试一下，如果弹窗恰好开着就直接写
 }
 
 function clearBody() {
-    writeToBodyTextarea('');
+    _pendingBody = '';
+    writeDirect();
+}
+
+function clickAdditionalParamsButton() {
+    // 尝试找到并点击"附加参数"按钮来打开弹窗
+    const btns = [...document.querySelectorAll('div, a, button, span')];
+    const btn = btns.find(el =>
+        el.textContent.trim() === '附加参数' ||
+        el.textContent.trim() === 'Additional Parameters' ||
+        el.getAttribute('data-i18n') === 'Additional Parameters'
+    );
+    if (btn) {
+        btn.click();
+        return true;
+    }
+    return false;
 }
 
 function applyToCustomBody() {
-    const json = buildBodyParams();
-    if (Object.keys(json).length === 0) {
+    updatePendingBody();
+    if (!_pendingBody) {
         toast('当前没有任何要写入的参数', 'warning');
         return;
     }
-    const jsonStr = JSON.stringify(json, null, 2);
-    if (writeToBodyTextarea(jsonStr)) {
+    // 先试直接写（弹窗可能恰好开着）
+    if (writeDirect()) {
         toast('已写入', 'success');
+        return;
+    }
+    // 弹窗没开 → 自动打开它，MutationObserver 会处理写入
+    if (clickAdditionalParamsButton()) {
+        toast('正在打开附加参数弹窗并写入…', 'info');
+        // 给弹窗一点时间出现，然后写入
+        setTimeout(() => {
+            if (writeDirect()) {
+                toast('已写入', 'success');
+            } else {
+                toast('弹窗未能打开，请手动点击 API面板→附加参数', 'warning');
+            }
+        }, 500);
     } else {
-        navigator.clipboard.writeText(jsonStr).then(
-            () => toast('textarea 未找到，已复制到剪贴板', 'warning'),
+        navigator.clipboard.writeText(_pendingBody).then(
+            () => toast('按钮未找到，已复制到剪贴板。请手动粘贴到 附加参数→包括主体参数', 'warning'),
             () => toast('写入失败', 'error'),
         );
     }
 }
 
-// ---------- 请求拦截（备用保险） ----------
+// ---------- 请求拦截：后台自动注入，不需要打开任何弹窗 ----------
 let _interceptInstalled = false;
 
 function installFetchInterceptor() {
     if (_interceptInstalled) return;
     _interceptInstalled = true;
     const _origFetch = window.fetch;
-    window.fetch = async function(url, options) {
+    window.fetch = async function(...args) {
         try {
             const s = getSettings();
-            if (s.enabled !== false && options?.method === 'POST' && typeof url === 'string') {
-                if (url.includes('/generate') || url.includes('/completions')) {
-                    const body = JSON.parse(options.body);
-                    if (body.messages) {
-                        const params = buildBodyParams();
-                        if (Object.keys(params).length > 0 && !body.providerOptions) {
-                            Object.assign(body, params);
-                            options = { ...options, body: JSON.stringify(body) };
-                            console.log('[VercelHelper] fetch拦截注入:', Object.keys(params));
+            if (s.enabled === false) return _origFetch.apply(this, args);
+
+            let url = '';
+            let init = args[1] || {};
+
+            if (args[0] instanceof Request) {
+                url = args[0].url;
+            } else {
+                url = String(args[0] || '');
+            }
+
+            // 只处理 POST + body 是 JSON string 的请求
+            if (init.method === 'POST' && init.body && typeof init.body === 'string') {
+                // 匹配酒馆后端的聊天生成端点（覆盖各种可能的路径）
+                const isChat = url.includes('generate')
+                    || url.includes('completions')
+                    || url.includes('chat')
+                    || url.includes('openai');
+
+                if (isChat) {
+                    try {
+                        const body = JSON.parse(init.body);
+                        if (body.messages) {
+                            const params = buildBodyParams();
+                            if (Object.keys(params).length > 0) {
+                                Object.assign(body, params);
+                                args[1] = { ...init, body: JSON.stringify(body) };
+                                console.log('[VercelHelper] ✅ 已注入参数:', Object.keys(params).join(', '), '→', url.slice(-50));
+                            }
                         }
-                    }
+                    } catch (_) {}
                 }
             }
         } catch (_) {}
-        return _origFetch.call(this, url, options);
+        return _origFetch.apply(this, args);
     };
+    console.log('[VercelHelper] fetch 拦截器已安装');
 }
 
 function copyJsonToClipboard() {
@@ -645,7 +719,7 @@ function renderPreview() {
     if (!pre) return;
     const json = buildBodyParams();
     pre.textContent = Object.keys(json).length > 0 ? JSON.stringify(json, null, 2) : '(无)';
-    syncToBody();
+    updatePendingBody();
 }
 
 // ---------- 过滤酒馆"可用模型"下拉框 ----------
@@ -927,7 +1001,10 @@ jQuery(async () => {
         renderKeyTable();
         bindEvents();
 
-        // 核心：安装请求拦截器，自动注入参数
+        // 安装 DOM 监听器：弹窗打开时自动填入参数
+        installBodyObserver();
+
+        // 安装 fetch 拦截器（备用保险）
         installFetchInterceptor();
 
         // 启动模型下拉框过滤 + 监听
