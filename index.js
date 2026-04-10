@@ -399,10 +399,7 @@ function markActiveKey(id) {
     const s = getSettings();
     s.activeKeyId = id;
     save();
-    // 刷新高亮
-    document.querySelectorAll('.vgh-active-row').forEach(el => el.classList.remove('vgh-active-row'));
-    const row = document.querySelector(`[data-keyrow="${id}"]`);
-    if (row) row.classList.add('vgh-active-row');
+    renderKeyTable();
 }
 
 async function rotateNow() {
@@ -411,16 +408,17 @@ async function rotateNow() {
     await writeApiKeyToST(k.key);
     k.lastUsed = Date.now();
     markActiveKey(k.id);
-    renderKeyTable();
     return k;
 }
 
+let _lastHookTime = 0;
 async function onGenerationHook() {
+    const now = Date.now();
+    if (now - _lastHookTime < 5000) return;
+    _lastHookTime = now;
     const s = getSettings();
     if (s.enabled === false) return;
-    // 每次生成前确保参数是最新的
     syncToBody();
-    // 轮询切 key
     if (!s.rotationEnabled || s.keys.length === 0) return;
     const k = pickNextAliveKey();
     if (!k) { console.warn('[VercelHelper] 轮询：没有活 key'); return; }
