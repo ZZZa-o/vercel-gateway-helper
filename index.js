@@ -646,14 +646,19 @@ function rowFor(k, isTrash) {
     const statusText = k.paused ? '暂停' : meta.text;
     const last = k.lastCheck ? new Date(k.lastCheck).toLocaleTimeString() : '-';
     const isActive = !isTrash && k.id === s.activeKeyId;
+    // key 预览：前8 + ... + 后4
+    const kv = k.key || '';
+    const keyPreview = kv.length > 14 ? kv.slice(0, 8) + '…' + kv.slice(-4) : kv;
     const actions = isTrash
         ? `<button class="menu_button vgh-mini" data-act="restore" data-id="${k.id}">恢复</button>
            <button class="menu_button vgh-mini" data-act="del" data-id="${k.id}">删除</button>`
         : `<button class="menu_button vgh-mini" data-act="check" data-id="${k.id}">查</button>
-           <button class="menu_button vgh-mini" data-act="pause" data-id="${k.id}">${k.paused ? '恢复' : '停'}</button>
-           <button class="menu_button vgh-mini" data-act="del" data-id="${k.id}">删</button>`;
+           <button class="menu_button vgh-mini" data-act="pause" data-id="${k.id}">${k.paused ? '恢复' : '停'}</button>`;
     return `<tr data-keyrow="${k.id}" class="${isActive ? 'vgh-active-row' : ''}">
-      <td>${escapeHtml(k.name)}${isActive ? ' ⬅' : ''}</td>
+      <td>
+        ${escapeHtml(k.name)}${isActive ? ' ⬅' : ''}
+        <div class="vgh-key-preview">${escapeHtml(keyPreview)} <button class="vgh-copy-btn" data-act="copykey" data-id="${k.id}" title="复制 key">⧉</button></div>
+      </td>
       <td>$${(k.balance || 0).toFixed(2)}</td>
       <td>$${(k.totalUsed || 0).toFixed(2)}</td>
       <td class="${meta.cls}">${statusText}</td>
@@ -711,6 +716,11 @@ function renderKeyTable() {
                 if (act === 'check') checkOneKey(id);
                 else if (act === 'pause') togglePause(id);
                 else if (act === 'restore') restoreFromTrash(id);
+                else if (act === 'copykey') {
+                    const s = getSettings();
+                    const k = s.keys.find(x => x.id === id);
+                    if (k) navigator.clipboard.writeText(k.key).then(() => toast('已复制', 'success'));
+                }
                 else if (act === 'del') {
                     if (confirm('确定删除这个 key?')) removeKey(id);
                 }
