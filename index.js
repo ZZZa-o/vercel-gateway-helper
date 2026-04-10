@@ -287,34 +287,36 @@ function makeKey(name, apiKey) {
     };
 }
 
-function addKey(name, apiKey) {
+function nextKeyName() {
     const s = getSettings();
-    name = (name || '').trim();
+    let n = s.keys.length + 1;
+    while (s.keys.some(k => k.name === `key_${n}`)) n++;
+    return `key_${n}`;
+}
+
+function addKey(apiKey) {
+    const s = getSettings();
     apiKey = (apiKey || '').trim();
-    if (!name || !apiKey) { toast('名称和 key 都要填', 'warning'); return; }
-    if (s.keys.some(k => k.name === name)) { toast('名称重复', 'warning'); return; }
-    s.keys.push(makeKey(name, apiKey));
+    if (!apiKey) { toast('请填写 key', 'warning'); return; }
+    if (s.keys.some(k => k.key === apiKey)) { toast('key 已存在', 'warning'); return; }
+    s.keys.push(makeKey(nextKeyName(), apiKey));
     save();
     renderKeyTable();
 }
 
 function batchImport(text) {
-    // 一行一个：name=key 或 name,key 或 纯 key（自动取名）
+    // 一行一个：纯 key（自动编号）
     const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     if (lines.length === 0) { toast('没有输入内容', 'warning'); return; }
     const s = getSettings();
     let added = 0, dup = 0;
     for (const line of lines) {
-        let name, key;
-        const m = line.match(/^([^=,\s]+)\s*[=,]\s*(.+)$/);
-        if (m) { name = m[1].trim(); key = m[2].trim(); }
-        else { key = line; name = `key_${s.keys.length + added + 1}`; }
+        const key = line;
         if (!key) continue;
         if (s.keys.some(k => k.key === key)) { dup++; continue; }
-        // 自动改名避免重复
-        let finalName = name, n = 1;
-        while (s.keys.some(k => k.name === finalName)) { finalName = `${name}_${++n}`; }
-        s.keys.push(makeKey(finalName, key));
+        let n = s.keys.length + added + 1;
+        while (s.keys.some(k => k.name === `key_${n}`)) n++;
+        s.keys.push(makeKey(`key_${n}`, key));
         added++;
     }
     save();
@@ -452,15 +454,14 @@ function buildHTML() {
             <div class="vgh-title">5. Key 池 / 余额 / 轮询</div>
 
             <div class="vgh-row">
-              <input type="text" id="vgh-newname" placeholder="名称"/>
-              <input type="text" id="vgh-newkey" placeholder="vercel ai gateway key"/>
+              <input type="text" id="vgh-newkey" placeholder="vercel ai gateway key" style="flex:1"/>
               <button class="menu_button" id="vgh-add">添加</button>
             </div>
 
             <details class="vgh-batch-details">
               <summary>批量添加</summary>
               <div class="vgh-batch-body">
-                <textarea id="vgh-batch-text" rows="6" placeholder="每行一个：&#10;name=vck-xxxx&#10;name,vck-xxxx&#10;vck-xxxx       (无名则自动取名)"></textarea>
+                <textarea id="vgh-batch-text" rows="6" placeholder="每行粘贴一个 key：&#10;vck-xxxx&#10;vck-yyyy&#10;vck-zzzz"></textarea>
                 <button class="menu_button" id="vgh-batch-go">导入</button>
               </div>
             </details>
@@ -640,10 +641,8 @@ function bindEvents() {
     document.getElementById('vgh-copy')?.addEventListener('click', copyJsonToClipboard);
 
     document.getElementById('vgh-add')?.addEventListener('click', () => {
-        const name = document.getElementById('vgh-newname').value;
         const key = document.getElementById('vgh-newkey').value;
-        addKey(name, key);
-        document.getElementById('vgh-newname').value = '';
+        addKey(key);
         document.getElementById('vgh-newkey').value = '';
     });
     document.getElementById('vgh-batch-go')?.addEventListener('click', () => {
