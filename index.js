@@ -773,7 +773,8 @@ function rowFor(k, isTrash) {
         ? `<button class="menu_button vgh-mini" data-act="restore" data-id="${k.id}">恢复</button>
            <button class="menu_button vgh-mini" data-act="del" data-id="${k.id}">删除</button>`
         : `<button class="menu_button vgh-mini" data-act="check" data-id="${k.id}">查</button>
-           <button class="menu_button vgh-mini" data-act="pause" data-id="${k.id}">${k.paused ? '恢复' : '停'}</button>`;
+           <button class="menu_button vgh-mini" data-act="pause" data-id="${k.id}">${k.paused ? '恢复' : '停'}</button>
+           <button class="menu_button vgh-mini" data-act="trash" data-id="${k.id}">弃</button>`;
     return `<tr data-keyrow="${k.id}" class="${isActive ? 'vgh-active-row' : ''}">
       <td>
         ${escapeHtml(k.name)}${isActive ? ' ⬅' : ''}
@@ -841,8 +842,13 @@ function renderKeyTable() {
                     const k = s.keys.find(x => x.id === id);
                     if (k) navigator.clipboard.writeText(k.key).then(() => toast('已复制', 'success'));
                 }
+                else if (act === 'trash') {
+                    const s = getSettings();
+                    const k = s.keys.find(x => x.id === id);
+                    if (k) { k.trashed = true; renumberKeys(); renderKeyTable(); }
+                }
                 else if (act === 'del') {
-                    if (confirm('确定删除这个 key?')) removeKey(id);
+                    if (confirm('确定永久删除这个 key?')) removeKey(id);
                 }
             });
         });
