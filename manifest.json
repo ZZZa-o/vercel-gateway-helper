@@ -6,7 +6,7 @@
   "js": "index.js",
   "css": "style.css",
   "author": "ZZZa-o",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "homePage": "https://github.com/ZZZa-o/vercel-gateway-helper",
   "auto_update": false
 }
