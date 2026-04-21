@@ -38,6 +38,7 @@ const DEFAULT_PRESETS = {
     'GPT':      { providers: ['openai'],    defaultOrder: ['openai'] },
     'DeepSeek': { providers: ['deepseek'],  defaultOrder: ['deepseek'] },
     'GLM':      { providers: ['zai'],       defaultOrder: ['zai'] },
+    'Kimi':     { providers: ['moonshotai'],defaultOrder: ['moonshotai'] },
     'Qwen':     { providers: ['alibaba'],   defaultOrder: ['alibaba'] },
 };
 
